@@ -2,6 +2,9 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from . import schemas, models
 from .core.database import engine, get_db
+from .core.config import settings  # 설정 import 추가
+import cloudinary.uploader
+from typing import List
 
 app = FastAPI()
 
@@ -16,8 +19,20 @@ def create_books(book:schemas.BookCreate, db: Session = Depends(get_db)):
     if db_book:
         raise HTTPException(status_code=400, detail="ISBN already registered")
     
-    db_book = models.Book(**book.dict())
+    db_book = models.Book(**book.model_dump())
     db.add(db_book)
     db.commit()
     db.refresh(db_book)
     return db_book
+
+@app.get('/books/', response_model=List[schemas.Book])
+def get_books(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    books = db.query(models.Book).order_by(models.Book.created_at.desc()).offset(skip).limit(limit).all()
+    return books
+
+@app.get('/books/{book_id}', response_model=schemas.Book)
+def get_book_by_id(book_id:int, db: Session = Depends(get_db)):
+    book = db.query(models.Book).filter(models.Book.id == book_id).first()
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    return book

@@ -36,3 +36,36 @@ def get_book_by_id(book_id:int, db: Session = Depends(get_db)):
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
     return book
+
+@app.put("/books/{book_id}", response_model=schemas.Book)  # PUT 사용
+def update_book_full(book_id: int, book: schemas.BookCreate, db: Session = Depends(get_db)):
+    db_book = db.query(models.Book).filter(models.Book.id == book_id).first()
+    if db_book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    
+    # 전체 필드 업데이트
+    for field, value in book.model_dump().items():
+        setattr(db_book, field, value)
+    
+    db.commit()
+    db.refresh(db_book)
+    return db_book
+
+@app.get("/books/{book_id}/edit", response_model=schemas.Book)
+def get_book_for_edit(book_id: int, db: Session = Depends(get_db)):
+    book = db.query(models.Book).filter(models.Book.id == book_id).first()
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    return book
+
+@app.delete("/books/{book_id}")
+def delete_book(book_id: int, db: Session = Depends(get_db)):
+    # 책 존재 확인
+    db_book = db.query(models.Book).filter(models.Book.id == book_id).first()
+    if db_book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    
+    # 삭제
+    db.delete(db_book)
+    db.commit()
+    return {"message": f"Book {book_id} deleted successfully"}

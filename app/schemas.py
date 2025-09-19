@@ -11,6 +11,7 @@ class BookBase(BaseModel):
     issue_date:Optional[date] = None  #출간일
     detail:Optional[str] = None #판형 및 쪽수
     price:Optional[int] = None  #가격
+    cover_image_url: Optional[str] = None #이미지 경로
 
 class BookCreate(BookBase):
     pass

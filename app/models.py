@@ -13,6 +13,7 @@ class Book(Base):
     publisher = Column(String, nullable=True)
     issue_date = Column(Date, nullable=True)
     detail = Column(Text, nullable=True)
+    cover_image_url = Column(String(500), nullable=True)
     price = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

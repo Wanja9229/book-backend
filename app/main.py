@@ -1,9 +1,10 @@
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from . import schemas, models
+from sqlalchemy.orm import Session, sessionmaker
+from . import schemas
+from .models import Book, Board, Post  # Board 오타 수정, Post 추가
 from datetime import date
-from .core.database import engine, get_db
+from .core.database import engine, get_db, Base
 from .core.config import settings  # 이미 Cloudinary 초기화 완료
 import cloudinary.uploader  # 직접 import
 from typing import List, Optional
@@ -23,20 +24,34 @@ app.add_middleware(
 def read_root():
     return {"message":"Book Api is running"}
 
-# @app.post("/books/", response_model=schemas.Book)
-# def create_books(book:schemas.BookCreate, db: Session = Depends(get_db)):
-#     # ISBN 중복 체크
-#     db_book = db.query(models.Book).filter(models.Book.isbn == book.isbn).first()
-#     if db_book:
-#         raise HTTPException(status_code=400, detail="ISBN already registered")
+
+def create_initial_data():
+    SessionLocal = sessionmaker(bind=engine)
+    db = SessionLocal()
     
-#     db_book = models.Book(**book.model_dump())
-#     db.add(db_book)
-#     db.commit()
-#     db.refresh(db_book)
-#     return db_book
+    # 테이블 생성
+    Base.metadata.create_all(bind=engine)
+    
+    # 기본 게시판이 없으면 생성
+    if not db.query(Board).first():
+        boards = [
+            Board(name="공지사항", slug="notice", allow_anonymous=False),
+            Board(name="자유게시판", slug="free", allow_anonymous=True),
+            Board(name="질문답변", slug="qna", allow_anonymous=True),
+        ]
+        
+        for board in boards:
+            db.add(board)
+        db.commit()
+        print("초기 게시판이 생성되었습니다!")
+    
+    db.close()
 
+@app.on_event("startup")
+async def startup_event():
+    create_initial_data()
 
+# ===== BOOK 관련 라우터 =====
 @app.post("/books/", response_model=schemas.Book)
 async def create_books(
     isbn: str = Form(...),
@@ -51,7 +66,7 @@ async def create_books(
     db: Session = Depends(get_db)
 ):
     # ISBN 중복 체크
-    db_book = db.query(models.Book).filter(models.Book.isbn == isbn).first()
+    db_book = db.query(Book).filter(Book.isbn == isbn).first()
     if db_book:
         raise HTTPException(status_code=400, detail="ISBN already registered")
     
@@ -87,7 +102,7 @@ async def create_books(
         "cover_image_url": cover_image_url
     }
     
-    db_book = models.Book(**book_data)
+    db_book = Book(**book_data)
     db.add(db_book)
     db.commit()
     db.refresh(db_book)
@@ -96,21 +111,21 @@ async def create_books(
 
 @app.get('/books/', response_model=List[schemas.Book])
 def get_books(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    books = db.query(models.Book).order_by(models.Book.created_at.desc()).offset(skip).limit(limit).all()
+    books = db.query(Book).order_by(Book.created_at.desc()).offset(skip).limit(limit).all()
     return books
 
 
 @app.get('/books/{book_id}', response_model=schemas.Book)
 def get_book_by_id(book_id:int, db: Session = Depends(get_db)):
-    book = db.query(models.Book).filter(models.Book.id == book_id).first()
+    book = db.query(Book).filter(Book.id == book_id).first()
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
     return book
 
 
-@app.put("/books/{book_id}", response_model=schemas.Book)  # PUT 사용
+@app.put("/books/{book_id}", response_model=schemas.Book)
 def update_book_full(book_id: int, book: schemas.BookCreate, db: Session = Depends(get_db)):
-    db_book = db.query(models.Book).filter(models.Book.id == book_id).first()
+    db_book = db.query(Book).filter(Book.id == book_id).first()
     if db_book is None:
         raise HTTPException(status_code=404, detail="Book not found")
     
@@ -125,7 +140,7 @@ def update_book_full(book_id: int, book: schemas.BookCreate, db: Session = Depen
 
 @app.get("/books/{book_id}/edit", response_model=schemas.Book)
 def get_book_for_edit(book_id: int, db: Session = Depends(get_db)):
-    book = db.query(models.Book).filter(models.Book.id == book_id).first()
+    book = db.query(Book).filter(Book.id == book_id).first()
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
     return book
@@ -134,7 +149,7 @@ def get_book_for_edit(book_id: int, db: Session = Depends(get_db)):
 @app.delete("/books/{book_id}")
 def delete_book(book_id: int, db: Session = Depends(get_db)):
     # 책 존재 확인
-    db_book = db.query(models.Book).filter(models.Book.id == book_id).first()
+    db_book = db.query(Book).filter(Book.id == book_id).first()
     if db_book is None:
         raise HTTPException(status_code=404, detail="Book not found")
     
@@ -142,3 +157,65 @@ def delete_book(book_id: int, db: Session = Depends(get_db)):
     db.delete(db_book)
     db.commit()
     return {"message": f"Book {book_id} deleted successfully"}
+
+
+@app.post("/posts/", response_model=schemas.PostResponse)
+def create_post(post: schemas.PostCreate, db: Session = Depends(get_db)):
+    """새 글 작성"""
+    db_post = Post(
+        title=post.title,
+        content=post.content,
+        author=post.author,
+        board_id=post.board_id,
+        password=post.password,
+        is_notice=post.is_notice,
+        is_secret=post.is_secret
+    )
+    db.add(db_post)
+    db.commit()
+    db.refresh(db_post)
+    return db_post
+
+
+@app.get("/posts/", response_model=List[schemas.PostResponse])
+def get_posts(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
+    """글 목록 조회 - 최신순으로 정렬"""
+    posts = db.query(Post).order_by(Post.created_at.desc()).offset(skip).limit(limit).all()
+    return posts
+
+
+@app.get("/posts/{post_id}", response_model=schemas.PostResponse)
+def get_post(post_id: int, db: Session = Depends(get_db)):
+    """글 상세 조회"""
+    post = db.query(Post).filter(Post.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return post
+
+
+@app.put("/posts/{post_id}", response_model=schemas.PostResponse)
+def update_post(post_id: int, post_update: schemas.PostUpdate, db: Session = Depends(get_db)):
+    """글 수정"""
+    post = db.query(Post).filter(Post.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    update_data = post_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(post, field, value)
+    
+    db.commit()
+    db.refresh(post)
+    return post
+
+
+@app.delete("/posts/{post_id}")
+def delete_post(post_id: int, db: Session = Depends(get_db)):
+    """글 삭제"""
+    post = db.query(Post).filter(Post.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    db.delete(post)
+    db.commit()
+    return {"message": "Post deleted successfully"}

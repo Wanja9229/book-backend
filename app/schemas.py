@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field  
 from datetime import datetime, date
-from typing import Optional
+from typing import Optional, List
 
 class BookBase(BaseModel):
     isbn:str = Field(..., min_length=1, max_length=17, pattern="^[0-9-]+$")  #도서 번호
@@ -33,3 +33,35 @@ class Book(BookBase):
     
     class Config:
         from_attributes = True  # DB → Pydantic 자동변환
+
+
+
+
+class PostBase(BaseModel):
+    title: str
+    content: str
+    author: str  # 필수 필드 추가
+    board_id: int  # 필수 필드 추가
+    password: Optional[str] = None  # 비회원용 비밀번호
+    is_notice: Optional[bool] = False
+    is_secret: Optional[bool] = False
+
+class PostCreate(PostBase):
+    pass
+
+class PostUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    author: Optional[str] = None
+    password: Optional[str] = None
+    is_notice: Optional[bool] = None
+    is_secret: Optional[bool] = None
+
+class PostResponse(PostBase):
+    id: int
+    view_count: int = 0
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
